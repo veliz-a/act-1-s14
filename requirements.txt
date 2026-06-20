@@ -2,3 +2,4 @@ streamlit
 supabase
 pymongo[srv]
 boto3
+redis

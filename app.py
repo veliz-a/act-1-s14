@@ -43,12 +43,19 @@ def get_b2():
     )
 
 
+@st.cache_resource
+def get_redis():
+    import redis
+    return redis.from_url(st.secrets["REDIS_URL"], decode_responses=True)
+
+
 st.set_page_config(page_title="AgroDron - Plataforma Cloud", layout="wide")
 st.title("🚁 AgroDron — Plataforma Cloud de Agricultura de Precisión")
 st.caption("Supabase (PostgreSQL) · MongoDB Atlas · Backblaze B2 (bucket privado)")
 
-tab1, tab2, tab3 = st.tabs([
+tab1, tab2, tab3, tab4 = st.tabs([
     "📋 Vuelos (Supabase)",
+    "🔴 Estado en vivo (Redis)",
     "📡 Telemetría (MongoDB)",
     "🖼️ Archivos de vuelo (Backblaze B2)",
 ])
@@ -94,8 +101,68 @@ with tab1:
     except Exception as e:
         st.error(f"Error conectando a Supabase: {e}")
 
-# ---------------- TAB 2: MongoDB (datos semiestructurados) ----------------
+# ---------------- TAB 2: Redis (estado en tiempo real) ----------------
 with tab2:
+    st.subheader("Estado en tiempo real — Redis")
+    st.caption(
+        "Simula el heartbeat que un dron envía cada pocos segundos durante el "
+        "vuelo: batería, posición y altitud. Se guarda en memoria con "
+        "expiración (TTL). Si el dron deja de reportar, su estado 'en línea' "
+        "desaparece solo — sin un job que lo borre. Esto NO reemplaza la "
+        "telemetría histórica de MongoDB: Redis solo responde '¿dónde está "
+        "y cómo está el dron AHORA MISMO?'."
+    )
+    try:
+        r = get_redis()
+
+        with st.form("form_heartbeat"):
+            col_a, col_b = st.columns(2)
+            with col_a:
+                dron_codigo_hb = st.text_input("Código del dron", placeholder="DRN-01")
+                bateria_pct = st.slider("Batería (%)", 0, 100, 85)
+                ttl_seg = st.slider(
+                    "Expira en (segundos)", 10, 300, 60,
+                    help="Simula la frecuencia real de heartbeat: si no llega un "
+                         "nuevo heartbeat antes de que esto expire, el dron pasa "
+                         "a verse como 'offline'.",
+                )
+            with col_b:
+                lat = st.number_input("Latitud", value=-12.0464, format="%.4f")
+                lon = st.number_input("Longitud", value=-77.0428, format="%.4f")
+                alt_m = st.number_input("Altitud (m)", min_value=0, value=45)
+
+            submitted_hb = st.form_submit_button("Enviar heartbeat")
+            if submitted_hb and dron_codigo_hb:
+                estado = {
+                    "bateria_pct": bateria_pct,
+                    "lat": lat,
+                    "lon": lon,
+                    "alt_m": alt_m,
+                    "actualizado": datetime.utcnow().isoformat(),
+                }
+                r.set(f"dron:estado:{dron_codigo_hb}", json.dumps(estado), ex=ttl_seg)
+                st.success(f"Heartbeat de '{dron_codigo_hb}' guardado (expira en {ttl_seg}s).")
+
+        st.markdown("**Drones actualmente en línea (heartbeat vigente):**")
+        if st.button("🔄 Refrescar estado"):
+            st.rerun()
+
+        claves = list(r.scan_iter("dron:estado:*"))
+        if claves:
+            filas = []
+            for k in claves:
+                valor = json.loads(r.get(k))
+                valor["dron_codigo"] = k.split(":")[-1]
+                valor["segundos_para_offline"] = r.ttl(k)
+                filas.append(valor)
+            st.dataframe(filas, use_container_width=True)
+        else:
+            st.info("Ningún dron en línea ahora mismo (todos los heartbeats expiraron).")
+    except Exception as e:
+        st.error(f"Error conectando a Redis: {e}")
+
+# ---------------- TAB 3: MongoDB (datos semiestructurados) ----------------
+with tab3:
     st.subheader("Datos semiestructurados — MongoDB Atlas")
     st.caption(
         "La telemetría varía según el tipo de dron: un multiespectral entrega "
@@ -187,8 +254,8 @@ with tab2:
     except Exception as e:
         st.error(f"Error conectando a MongoDB: {e}")
 
-# ---------------- TAB 3: Backblaze B2 (datos no estructurados) ----------------
-with tab3:
+# ---------------- TAB 4: Backblaze B2 (datos no estructurados) ----------------
+with tab4:
     st.subheader("Datos no estructurados — Backblaze B2 (bucket privado)")
     st.caption(
         "Ortomosaicos/capturas aéreas, reportes PDF de salud del cultivo y logs "
