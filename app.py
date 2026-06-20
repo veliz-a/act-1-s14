@@ -35,11 +35,21 @@ def get_mongo():
 @st.cache_resource
 def get_b2():
     import boto3
+    endpoint = st.secrets["B2_ENDPOINT"]
+    # El endpoint de B2 tiene el formato https://s3.<region>.backblazeb2.com
+    # Derivamos la región automáticamente para que la firma SigV4 siempre
+    # coincida con el endpoint, evitando un segundo punto de fallo además
+    # del propio endpoint.
+    try:
+        region = endpoint.split("//")[1].split(".")[1]
+    except IndexError:
+        region = "us-west-002"
     return boto3.client(
         "s3",
-        endpoint_url=st.secrets["B2_ENDPOINT"],
+        endpoint_url=endpoint,
         aws_access_key_id=st.secrets["B2_KEY_ID"],
         aws_secret_access_key=st.secrets["B2_APPLICATION_KEY"],
+        region_name=region,
     )
 
 
