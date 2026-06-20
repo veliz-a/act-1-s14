@@ -1,21 +1,16 @@
 -- Ejecutar en el Editor SQL de Supabase
+-- Caso: AgroDron - plataforma de agricultura de precisión con drones
 
-create table if not exists productos (
+create table if not exists vuelos (
   id bigint generated always as identity primary key,
-  nombre text not null,
-  categoria text,
-  precio numeric(10,2),
-  stock integer default 0,
-  creado_en timestamptz default now()
+  dron_codigo text not null,          -- ej: 'DRN-01'
+  tipo_dron text not null,            -- 'multiespectral' | 'termico' | 'fumigacion'
+  parcela text not null,              -- nombre o codigo del campo/parcela
+  fecha timestamptz default now(),
+  duracion_min integer,
+  area_cubierta_ha numeric(6,2),
+  estado text default 'completado',   -- 'programado' | 'en_curso' | 'completado'
+  piloto text
 );
 
--- IMPORTANTE: si Row Level Security (RLS) está activado en este proyecto
--- (Supabase lo activa por defecto en proyectos nuevos), los INSERT/SELECT
--- con la "anon key" fallarán silenciosamente o con error de permisos.
--- Para esta demo, opción rápida (NO recomendada en producción real):
-
-alter table productos disable row level security;
-
--- Alternativa más correcta si tienes tiempo: dejar RLS activo y crear
--- una policy explícita, por ejemplo:
--- create policy "allow_all_demo" on productos for all using (true) with check (true);
+alter table vuelos disable row level security;
